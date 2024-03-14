@@ -1,0 +1,298 @@
+---
+title: "Principal Axis Regression"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(lmtest)
+library(psych)
+library(cellWise)
+library(car)
+library(gtools)
+
+set.seed(42)
+```
+
+Global parameters
+```{r}
+dependent_variable <- "Angry"
+target <- "masc"
+use_voice_variables <- TRUE
+```
+
+Load data
+
+```{r}
+mm_scales_and_targets <- read_csv("mm_mean_ratings_for_R.csv")
+mf_scales_and_targets <- read_csv("mf_mean_ratings_for_R.csv")
+voice_groundtruth <- read_csv("voice_groundtruth.csv")
+
+# transform target column and stimulus_id into factors
+factor_columns <- c(1,9)
+mm_scales_and_targets[,factor_columns] <- lapply(mm_scales_and_targets[,factor_columns] , factor)
+factor_columns <- c(1,17)
+mf_scales_and_targets[,factor_columns] <- lapply(mf_scales_and_targets[,factor_columns] , factor)
+```
+
+Let's drop "Heavy/Light" as it is extremely collinear (VIF ~ 7)
+```{r}
+mf_scales_and_targets <- mf_scales_and_targets[ , !names(mf_scales_and_targets) %in% "Heavy_Light"]
+```
+
+Merge mm and mf ratings
+```{r}
+complete_df <- merge(mm_scales_and_targets, mf_scales_and_targets[, 1:15],
+                                  by = "stimulus_id")
+complete_df <- merge(complete_df, voice_groundtruth, by = "stimulus_id")
+```
+
+Select only relevant data
+```{r}
+mf_regressors <- colnames(mf_scales_and_targets[, 2:15])
+
+if (use_voice_variables) {
+  voice_variables <- colnames(voice_groundtruth[, 2:5])
+} else {
+  voice_variables <- NULL
+}
+
+target_df <- complete_df[complete_df$target==target,]
+rownames(target_df) <- target_df$stimulus_id
+target_df <- target_df[,(colnames(target_df) %in% c(dependent_variable, mf_regressors, voice_variables))]
+```
+
+### Principal axis extraction
+
+
+```{r}
+# NB: already standardised
+nx <- scale(as.matrix(target_df[,(colnames(target_df) %in% mf_regressors)]))
+colnames(nx) <- mf_regressors
+
+
+cor_method <- "spearman"
+initial_communalities <- c(0.67, 0.76, 0.47, 0.74, 0.75, 0.54, 0.76, 
+                           0.77, 0.88, 0.53, 0.41, 0.48, 0.74, 0.78)
+if (target == "masc") {
+  nfactors <- 4 
+} else {
+  nfactors <- 3
+}
+
+fa_mod <- fa(r=cor(nx, method=cor_method),
+             nfactors = nfactors, # parallel$Retained, 
+             fm="pa", # factoring method, principal axis
+             SMC=initial_communalities, # from the above FA on the entire set
+             max.iter=1000,
+             rotate="oblimin",
+             n.obs=nrow(nx))
+
+fa_scores <- factor.scores(nx,fa_mod, method = "tenBerge")
+
+print(fa_mod)
+```
+
+
+Extract factor scores
+```{r}
+enx <- fa_scores$scores
+target_df <- cbind(enx,target_df[,(colnames(target_df) %in% c(dependent_variable, voice_variables))])
+round(cor(enx),2)
+```
+
+Outliers detection
+- https://www.sciencedirect.com/science/article/pii/S0022103117302123 (Table 2)
+```{r}
+# alpha <- .05
+# temp_df <- target_df[,!(colnames(target_df) %in% voice_variables)]
+# cutoff <- (qchisq(p = 1-alpha, df = ncol(temp_df)))
+# 
+# mcd_75 <- cov.mcd(temp_df, quantile.used = nrow(temp_df)*.75)
+# 
+# md <- mahalanobis(temp_df, mcd_75$center, mcd_75$cov)
+# 
+# names_outliers <- which(md > cutoff)
+# 
+# target_df <- target_df[-names_outliers,]
+```
+
+
+Define formula
+```{r}
+formula_basic <- as.formula(
+  paste(
+    dependent_variable,
+    " ~ ",
+    paste(voice_variables, collapse = " + "),
+    " + ",
+    paste(colnames(enx), collapse = " + "),
+    sep = ""
+    )
+)
+
+print(formula_basic)
+
+
+pa_axes_sum <- paste("(",paste(colnames(enx), collapse = " + "),")", sep = "")
+
+formula_advanced <- paste(
+  dependent_variable,
+  " ~ ",
+  paste(voice_variables, collapse = " + "),
+  " + ",
+  paste(colnames(enx), collapse = " + "),
+  sep = ""
+  )
+
+for (i in 1:length(voice_variables)) {
+  formula_advanced <- paste(formula_advanced, " + ", voice_variables[i], ":", pa_axes_sum, sep = "")
+}
+
+formula_advanced <- as.formula(formula_advanced)
+
+print(formula_advanced)
+```
+
+If target == "fem" drop no voices (no effect on other targets)
+```{r}
+fem_no_voices <- "9lIP11Pbu10"
+target_df <- target_df[row.names(target_df) != fem_no_voices,]
+```
+
+
+
+Fit
+```{r}
+
+fit_basic <- lm(formula_basic, data = target_df)
+
+# if residuals are not normal, try box-coxing the dependent variable
+if (shapiro.test(residuals(fit_basic))$p.value < 0.05) {
+  print(shapiro.test(residuals(fit_basic)))
+  
+  print("Perform ROBUST Box-Cox or Yeo-Johnson transformation")
+  # https://link.springer.com/content/pdf/10.1007/s10994-021-05960-5.pdf
+  # https://search.r-project.org/CRAN/refmans/cellWise/html/transfo.html
+
+  # shift to make positive
+  target_df[dependent_variable] <- target_df[dependent_variable] - min(target_df[dependent_variable]) + 1
+  
+  
+  target_df[dependent_variable] <- transfo(target_df[dependent_variable], type = "bestObj")$Y
+}
+
+fit_basic <- lm(formula = formula_basic, data = target_df)
+
+if (shapiro.test(residuals(fit_basic))$p.value < 0.05) {
+  plot(fit_basic)
+  stop("Residuals are not normally distributed even after transformation.")
+}
+
+# Non-linearity test
+if (raintest(fit_basic, fraction = 0.2)$p.value < 0.05) {
+  plot(fit_basic)
+  stop("The regression is not correctly modeled as linear!")
+}
+
+# Heteroscedasticity test
+if (gqtest(fit_basic, fraction = 0.2)$p.value < 0.05) {
+  print("There is a violation of homoscedasticity of the residuals.")
+  print(gqtest(fit_basic, fraction = 0.2))
+  
+  # print("Fitting a weighted linear regression model.")
+  # #define weights to use
+  # # source https://www.statology.org/weighted-least-squares-in-r/
+  # # secondary source https://medium.com/datamotus/solving-the-problem-of-heteroscedasticity-through-weighted-regression-e4a22f1afa6b
+  # wts <- 1/fitted(lm(abs(residuals(fit_basic))~fitted(fit_basic)))^2
+  # fit_basic <- lm(formula = formula_basic, data = target_df, weights = wts)
+}
+
+```
+
+Print results
+```{r}
+# Sum of Squares Error (SSE) aka sum(residuals^2)
+sse <- sum(residuals(fit_basic)^2) # sum((fitted(fit_basic) - target_df[dependent_variable])^2)
+
+# Sum of Squares Regression (SSR)
+ssr <- sum((fitted(fit_basic) - mean(target_df[[dependent_variable]]))^2)
+
+# Sum of Squares Total (SST)
+sst <- ssr + sse # sum((target_df[[dependent_variable]] - mean(target_df[[dependent_variable]]))^2)
+
+# r2 <- ssr/sst = 1 - sse/sst
+
+print(target)
+print(formula_basic)
+summary(fit_basic)
+summary_fit <- summary(fit_basic)
+drop1_fit <- drop1(fit_basic,test="F")
+
+for (i in 2:nrow(drop1_fit)) {
+  row <- drop1_fit[i,]
+  row_name <- rownames(row)
+  
+  sum_sq <- as.numeric(row[2])
+  
+  F <- as.numeric(row[5])
+  
+  p <- as.numeric(row[6])
+  
+  if (row_name %in% rownames(summary_fit$coefficients)) {
+    reg_coeff <- summary_fit$coefficients[row_name, 1]
+  } else {
+    reg_coeff <- NULL
+  }
+  
+  var_explained <- sum_sq/sst
+  significance <- stars.pval(p)
+  if (p <= 0.1) {
+    if (!is.null(reg_coeff)) { 
+      writeLines(sprintf("%s: \n \t coeff.= %.2f, Var. expl.= %.1f%%, F-val= %.2f, p= %.2e %s", 
+                         row_name, reg_coeff, 100*var_explained, F, p, significance))
+    } else {
+      writeLines(sprintf("%s: \n \t coeff.= NA, Var. expl.= %.1f%%, F-val= %.2f, p= %.2e %s", 
+                         row_name, 100*var_explained, F, p, significance))
+    }
+  }
+}
+```
+
+```{r}
+fit_advanced <- lm(formula_advanced, data = target_df)
+# summary(fit_advanced)
+anova(fit_basic,fit_advanced)
+```
+
+```{r}
+summary(fit_advanced)
+```
+
+
+```{r}
+plot(fit_basic) 
+```
+
+
+```{r}
+plot_df <- data.frame(true_values = unlist(target_df[dependent_variable]),
+                      fitted_values = fit_basic$fitted.values)
+
+ggplot(plot_df) +
+  geom_point(mapping=aes(x=true_values, y=fitted_values)) +
+  geom_abline(slope = 1, intercept = 0) +
+  #guides(color = guide_legend(title = "Target")) + 
+  labs(title= paste0("Regression fits of ", dependent_variable),
+       x = "Actual", y = "Predicted")
+```
+
+
+## Dredging
+
+```{r}
+
+
+```

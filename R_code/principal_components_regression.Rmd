@@ -1,0 +1,232 @@
+---
+title: "Principal Components Regression"
+output: html_notebook
+---
+
+Source: Faraway, J.J., 2002. Practical regression and ANOVA using R (Vol. 168). Bath: University of Bath. **pp. 107 - **
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(lmtest)
+library(psych)
+library(cellWise)
+library(car)
+library(rospca)
+
+set.seed(42)
+```
+
+Load data
+
+```{r}
+mm_scales_and_targets <- read_csv("mm_mean_ratings_for_R.csv")
+mf_scales_and_targets <- read_csv("mf_mean_ratings_for_R.csv")
+#product_category <- read_csv("product_category.csv")
+
+# transform target column and stimulus_id into factors
+factor_columns <- c(1,9)
+mm_scales_and_targets[,factor_columns] <- lapply(mm_scales_and_targets[,factor_columns] , factor)
+factor_columns <- c(1,17)
+mf_scales_and_targets[,factor_columns] <- lapply(mf_scales_and_targets[,factor_columns] , factor)
+```
+
+Let's drop "Heavy/Light" as it is extremely collinear (VIF ~ 7)
+```{r}
+mf_scales_and_targets <- mf_scales_and_targets[ , !names(mf_scales_and_targets) %in% "Heavy_Light"]
+```
+
+Merge mm and mf ratings
+```{r}
+complete_df <- merge(mm_scales_and_targets, mf_scales_and_targets[, 1:15],
+                                  by = "stimulus_id")
+
+regressors <- colnames(mf_scales_and_targets[, 2:15])
+```
+
+Select only relevant data
+```{r}
+dependent_variable <- "Happy"
+target <- "masc"
+
+regressors <- colnames(mf_scales_and_targets[, 2:15])
+
+target_df <- complete_df[complete_df$target==target,]
+rownames(target_df) <- target_df$stimulus_id
+target_df <- target_df[,(colnames(target_df) %in% c(dependent_variable, regressors))]
+```
+
+## Principal Components Regression
+
+
+
+Compute eigendecomposition on standardised data
+- NB: use robust PCA (less sensitive to outliers and skeweness)
+```{r}
+# NB: already standardised
+nx <- scale(as.matrix(target_df[,(colnames(target_df) %in% regressors)]))
+colnames(nx) <- regressors
+#e <- eigen(cor(nx))
+
+# robust PCA
+rob_pca <- robpca(nx, k = 0, kmax = length(regressors), skew = TRUE)
+  
+plot(rob_pca$eigenvalues,type="l",xlab="EV no.")
+```
+
+Look at the loadings (mask for increased interpretability)
+```{r}
+colnames(rob_pca$loadings) <- paste("EV", 1:ncol(rob_pca$loadings), sep = "_")
+rownames(rob_pca$loading) <- regressors
+round(rob_pca$loading,1) * (abs(rob_pca$loading)>=1.8*median(abs(rob_pca$loading)))
+#unname((round(e$vec,1) * (abs(e$vec)>=2*median(abs(e$vec))))[,1])
+```
+
+Project onto the orthogonal basis
+```{r}
+enx <- nx %*% rob_pca$loading
+target_df <- cbind(enx,target_df[dependent_variable])
+round(cov(enx),1)
+```
+
+Outliers detection
+- https://www.sciencedirect.com/science/article/pii/S0022103117302123 (Table 2)
+```{r}
+# alpha <- .05
+# cutoff <- (qchisq(p = 1-alpha, df = ncol(target_df)))
+# 
+# mcd_75 <- cov.mcd(target_df, quantile.used = nrow(target_df)*.75)
+# 
+# md <- mahalanobis(target_df, mcd_75$center, mcd_75$cov)
+# 
+# names_outliers <- which(md > cutoff)
+# 
+# target_df <- target_df[-names_outliers,]
+```
+
+
+Define formula
+```{r}
+formula_basic <- as.formula(
+  paste(dependent_variable,
+        paste(colnames(rob_pca$loadings), collapse = " + "),
+        sep = " ~ ")
+)
+
+print(formula_basic)
+```
+
+
+Fit
+```{r}
+
+fit_basic <- lm(formula_basic, data = target_df)
+
+# if residuals are not normal, try box-coxing the dependent variable
+if (shapiro.test(residuals(fit_basic))$p.value < 0.05) {
+  print(shapiro.test(residuals(fit_basic)))
+  
+  print("Perform ROBUST Box-Cox or Yeo-Johnson transformation")
+  # https://link.springer.com/content/pdf/10.1007/s10994-021-05960-5.pdf
+  # https://search.r-project.org/CRAN/refmans/cellWise/html/transfo.html
+
+  # shift to make positive
+  target_df[dependent_variable] <- target_df[dependent_variable] - min(target_df[dependent_variable]) + 1
+  
+  
+  target_df[dependent_variable] <- transfo(target_df[dependent_variable], type = "bestObj")$Xt
+}
+
+fit_basic <- lm(formula = formula_basic, data = target_df)
+
+if (shapiro.test(residuals(fit_basic))$p.value < 0.05) {
+  plot(fit_basic)
+  stop("Residuals are not normally distributed even after transformation.")
+}
+
+# Non-linearity test
+if (harvtest(fit_basic)$p.value < 0.05) {
+  plot(fit_basic)
+  stop("The regression is not correctly modeled as linear!")
+}
+
+# Heteroscedasticity test 
+if (gqtest(fit_basic, fraction = 0.2)$p.value < 0.05) {
+  print("There is a violation of homoscedasticity of the residuals.")
+  print(gqtest(fit_basic))
+  
+  # print("Fitting a weighted linear regression model.")
+  # #define weights to use
+  # # source https://www.statology.org/weighted-least-squares-in-r/
+  # # secondary source https://medium.com/datamotus/solving-the-problem-of-heteroscedasticity-through-weighted-regression-e4a22f1afa6b
+  # wts <- 1/fitted(lm(abs(residuals(fit_basic))~fitted(fit_basic)))^2
+  # fit_basic <- lm(formula = formula_basic, data = target_df, weights = wts)
+}
+
+```
+
+Print results
+```{r}
+# how to read coefficients table https://www.youtube.com/watch?v=Sz5AdyOiSLE
+
+# Sum of Squares Error (SSE) aka sum(residuals^2)
+sse <- sum(residuals(fit_basic)^2) # sum((fitted(fit_basic) - target_df[dependent_variable])^2)
+
+# Sum of Squares Regression (SSR)
+ssr <- sum((fitted(fit_basic) - mean(target_df[[dependent_variable]]))^2)
+
+# Sum of Squares Total (SST)
+sst <- ssr + sse # sum((target_df[[dependent_variable]] - mean(target_df[[dependent_variable]]))^2)
+
+# r2 <- ssr/sst = 1 - sse/sst
+
+print(target)
+print(formula_basic)
+summary(fit_basic)
+summary_fit <- summary(fit_basic)
+drop1_fit <- drop1(fit_basic,test="F")
+
+for (i in 2:nrow(drop1_fit)) {
+  row <- drop1_fit[i,]
+  row_name <- rownames(row)
+  
+  sum_sq <- as.numeric(row[2])
+  
+  F <- as.numeric(row[5])
+  
+  p <- as.numeric(row[6])
+  
+  reg_coeff <- summary_fit$coefficients[i, 1]
+  
+  var_explained <- sum_sq/sst
+  
+  if (p < 0.05) {
+    writeLines(sprintf("%s: \n \t coeff.= %.2f, Var. expl.= %.1f%%, F-val= %.2f, p= %.2e", row_name, reg_coeff, 100*var_explained, F, p))
+  }
+}
+```
+
+```{r}
+plot(fit_basic) 
+```
+
+
+```{r}
+plot_df <- data.frame(true_values = unlist(target_df[dependent_variable]),
+                      fitted_values = fit_basic$fitted.values)
+
+ggplot(plot_df) +
+  geom_point(mapping=aes(x=true_values, y=fitted_values)) +
+  geom_abline(slope = 1, intercept = 0) +
+  #guides(color = guide_legend(title = "Target")) + 
+  labs(title= paste0("Regression fits of ", dependent_variable),
+       x = "Actual", y = "Predicted")
+```
+
+
+## Dredging
+
+```{r}
+
+
+```

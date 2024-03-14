@@ -1,0 +1,58 @@
+---
+title: "Krippendorff’s Alpha"
+output: html_notebook
+---
+
+source: https://rpubs.com/jacoblong/content-analysis-krippendorff-alpha-R
+
+Compute Krippendorff's Alpha for the CA items on the control stimuli
+
+```{r}
+library(tidyverse)
+library(irr)
+```
+
+Load data
+
+```{r}
+coder_1_data <- read.csv("groundtruth_partial_coder_1_reduced.csv")
+coder_2_data <- read.csv("groundtruth_partial_coder_2_reduced.csv")
+unformated_data <- rbind(coder_1_data, coder_2_data)
+variable <- "all_genders"
+
+```
+
+var1_data <- select(example_data, content_id, coder_id, var1)
+
+```{r}
+content_id <- "stimulus_id"
+coder_id <- "coder_id"
+var_data <- select(unformated_data, content_id, all_of(coder_id), variable)
+```
+
+var1_data <- pivot_wider(var1_data, id_cols = coder_id, names_from = content_id, values_from = var1)
+
+```{r}
+var_data <- pivot_wider(var_data, id_cols = coder_id, names_from = content_id, values_from = variable)
+```
+
+var1_data <- select(var1_data, -coder_id)
+
+```{r}
+var_data <- select(var_data, -coder_id)
+```
+
+var1_data <- as.matrix(var1_data)
+
+```{r}
+var_data <- as.matrix(var_data)
+```
+
+```{r}
+kripp_alpha <- kripp.alpha(var_data, method="nominal")
+kripp_alpha
+```
+
+```{r}
+
+```
