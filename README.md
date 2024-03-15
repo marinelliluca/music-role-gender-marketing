@@ -1,1 +1,9 @@
-# data_analysis_2024
+- add title
+- abstract
+- link to paper
+- license
+- overall description
+- requirements
+- quick guide
+- https://marinelliluca.github.io/mf-interactive.html
+- https://marinelliluca.github.io/mm-interactive.html
