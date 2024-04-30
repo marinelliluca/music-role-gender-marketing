@@ -139,7 +139,8 @@ def anova_by_variable(
     fused_label=None,
     excluded_categories=None,
     groups=None,
-    labels=None):
+    labels=None,
+    alpha=0.05):
     fields, _ = get_fields(experiment)
     ordered_fields = list(fields.keys())
 
@@ -170,7 +171,7 @@ def anova_by_variable(
     )
 
     significant_fields = perform_anova(
-        values_by_group, labels, problematic_vars, ordered_fields
+        values_by_group, labels, problematic_vars, ordered_fields, alpha=alpha
     )
     
     
