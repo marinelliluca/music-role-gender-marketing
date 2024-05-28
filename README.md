@@ -17,7 +17,7 @@ Luca Marinelli<sup>1</sup>, Petra Lucht<sup>2</sup>, Charalampos Saitis<sup>1</s
 - For Table 1 (contingency tables) refer to `nb_2_contingency_tables.ipynb` in the main folder
 - For the inter-rater agreement of the music-focused (`mf` experiment) and of the multimodal ratings (`mm` experiment) refer to `nb1_inter_rater_agreement.ipynb`
 - For Table 2 and Table 3 see `nb3_anova_content_analysis.ipynb`
-- For Figure 2 and 3 see `nb4_umap.ipynb`
+- For Figure 2 and 3 see `nb4_umap.ipynb` (links to the interactive version below)
 - For the variance inflation factor computed to inform the exploratory factor analysis and factor score regression see `nb5_variance_inflation_factor.ipynb`
 - For the exploratory factor analysis see `R_code/exploratory_factor_analysis.R`
 - For Krippendorff's alpha of the content analytical variables see `R_code/compute_krippendorffs_alpha.Rmd`
