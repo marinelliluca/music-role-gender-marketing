@@ -1,5 +1,10 @@
 # A Multimodal Understanding of the Role of Sound and Music in Gendered Toy Marketing
 
+Luca Marinelli^1, Petra Lucht^2, Charalampos Saitis^1
+<sup>1</sup>Centre for Digital Music, Queen Mary University of London, United Kingdom
+2 Center for Interdisciplinary Women’s and Gender Studies, Technical University of
+Berlin, Germany
+
 Currently under revision.
 
 ## Abstract
