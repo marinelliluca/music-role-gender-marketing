@@ -6,6 +6,8 @@ Luca Marinelli<sup>1</sup>, Petra Lucht<sup>2</sup>, Charalampos Saitis<sup>1</s
 
 <sup>2</sup>Center for Interdisciplinary Women’s and Gender Studies, Technical University of Berlin, Germany
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 **Manuscript currently under revision.**
 
 ## Abstract
